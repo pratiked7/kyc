@@ -5,7 +5,7 @@ pragma solidity >= 0.5.9;
 contract KYC {
 
     /** only one admin to monitor, add, remove, modify banks */
-    address constant adminAddress = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;
+    address adminAddress;
 
     /** struct : Customer
         username (string) - name of the user which is **unique**
@@ -83,7 +83,20 @@ contract KYC {
         _;
     }
 
-    constructor() {}
+    //modifier: check if bank is valid bank
+    modifier validBank {
+        require(banks[msg.sender].complaintsReported <= (totalBanks / 2), "Not a valid bank");
+        _;
+    }
+
+    modifier allowedVoting {
+        require(banks[msg.sender].allowedToVote, "Not allowed to vote");
+        _;
+    }
+
+    constructor() {
+        adminAddress = msg.sender;
+    }
 
     /** Helper method to add dummy banks */
     function init() public {
@@ -147,9 +160,10 @@ contract KYC {
         customername: name of the customer
         data: data of the customer
     */
-    function addCustomer(string memory customerName, string memory data) public {
+    function addCustomer(string memory customerName, string memory data) public validBank {
         /** check if customer is exist or not - allow adding new customer if customer is not present*/
         require(customers[customerName].validatorBank == address(0), "Customer is already present!");
+
         customers[customerName].username = customerName;
         customers[customerName].data = data;
         customers[customerName].validatorBank = msg.sender;
@@ -162,7 +176,7 @@ contract KYC {
         customerName: name of the customer whose data is need to be modified
         data: new data of the customer
      */
-    function modifyCustomer(string memory customerName, string memory data) public {
+    function modifyCustomer(string memory customerName, string memory data) public validBank {
         /** check if customer is exist or not */
         require(customers[customerName].validatorBank != address(0), "Customer is not present in the database");
         customers[customerName].data = data;
@@ -180,7 +194,7 @@ contract KYC {
     /** Add new KYC request entry from customer */
     //TODO: (additional feature) check if KYC request is already present and not verified
     //TODO: (additional feature) remove KYC request once it's verified or disqualified
-    function addKycRequest(string memory customerName, string memory dataHash) public{
+    function addKycRequest(string memory customerName, string memory dataHash) public {
         /** customer should be added first before adding KYC request for the customer verification*/
         require(customers[customerName].validatorBank != address(0), "Customer is not present in the database");
         /** complaints reported against calling bank should be less than or equal to 1/3rd of
@@ -215,7 +229,7 @@ contract KYC {
     /** Upvote customer
         name: name of the customer
      */
-    function upvoteCustomer(string memory name) public {
+    function upvoteCustomer(string memory name) public allowedVoting {
         /** customer should be added first before adding KYC request for the customer verification*/
         require(customers[name].validatorBank != address(0), "Customer is not present in the database");
         /** kyc request should be added for voting */
@@ -237,7 +251,7 @@ contract KYC {
     /** Downvote customer
         name: name of the customer
      */
-    function downvoteCustomer(string memory name) public {
+    function downvoteCustomer(string memory name) public allowedVoting {
          /** customer should be added first before adding KYC request for the customer verification*/
         require(customers[name].validatorBank != address(0), "Customer is not present in the database");
         /** kyc request should be added for voting */
@@ -287,12 +301,15 @@ contract KYC {
     /** Report against a bank
         bankAddress: unique account address of the bank
      */
-    function reportBank(address bankAddress) public {
+    function reportBank(address bankAddress) public validBank {
         require(banks[bankAddress].ethAddress != address(0), "Bank is not present");
         banks[bankAddress].complaintsReported += 1;
+
+        /** If number of complaints is greater than half of the total number of banks
+            block banks from voting
+         */
+        if(banks[bankAddress].complaintsReported > (totalBanks / 2)) {
+            banks[bankAddress].allowedToVote = false;
+        }
     }
-
-
-    
-
 }
