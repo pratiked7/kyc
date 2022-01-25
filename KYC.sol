@@ -24,6 +24,14 @@ contract KYC {
         uint256 upvotes;
     }
 
+    /** struct : Bank
+        name (string) - name of the bank
+        ethAddress (address) - unique account address of the bank
+        regNumber (string) - registration number of the bank
+        complaintReported (uint) - number of complaints reported against the bank
+        kycCount (uin) - number of KYC submitted by the bank
+        allowedToVote (bool) -  admin can disable bank's voting power in customer verification
+     */
     struct Bank {
         string name;
         address ethAddress;
@@ -33,6 +41,11 @@ contract KYC {
         bool allowedToVote;
     }
 
+    /** struct : KycRequest
+        username (string) - unique name of the customer
+        bankAddress (address) - address of the bank that submitted the request
+        customerData (string) - data submitted by customer for verification
+     */
     struct KycRequest {
         string username;
         address bankAddress;
@@ -72,6 +85,7 @@ contract KYC {
 
     constructor() {}
 
+    /** Helper method to add dummy banks */
     function init() public {
         //add banks
         addBank("ABC", 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2, "111");
@@ -81,10 +95,59 @@ contract KYC {
         addBank("MNO", 0x17F6AD8Ef982297579C203069C1DbfFE4348c372, "555");
     }
 
+
+
+    //ADMIN INTERFACE
+
+    /** Add new bank
+        bankName: Name of the bank
+        bankAddress: unique account address of the bank
+        regNumber: registration number of the bank
+
+        onlyAdmin - only admin can add a new bank
+     */
+    function addBank(string memory bankName, address bankAddress, string memory regNumber) public onlyAdmin {
+        require(banks[bankAddress].ethAddress != bankAddress, "Bank is already present");
+        banks[bankAddress].name = bankName;
+        banks[bankAddress].ethAddress = bankAddress;
+        banks[bankAddress].regNumber = regNumber;
+        banks[bankAddress].complaintsReported = 0;
+        banks[bankAddress].allowedToVote = true;
+
+        totalBanks += 1;
+    }
+
+    /** Remove a bank
+        bankAddress: unique account address of the bank
+
+        onlyAdmin - only admin can remove a bank
+     */
+    function removeBank(address bankAddress) public onlyAdmin {
+        require(banks[bankAddress].ethAddress == bankAddress, "Bank is not present");
+        delete banks[bankAddress];
+
+        totalBanks -= 1;
+    }
+
+    /** Modify Acceess to vote for a bank 
+        bankAddress: unique account address of a bank
+        allowed: allowed to vote or not
+
+        onlyAdmin - only admin can change the access to vote for a bank
+    */
+    function modifyBankAccessToVote(address bankAddress, bool allowed) public onlyAdmin {
+        require(banks[bankAddress].ethAddress == bankAddress, "Bank is not present");
+        banks[bankAddress].allowedToVote = allowed;
+    }
+
+
     // BANK INTERFACE
 
-    /** Add new customer */
-    function addCustomer(string memory customerName, string memory data) public returns(bool) {
+    /** Add new customer 
+        customername: name of the customer
+        data: data of the customer
+    */
+    function addCustomer(string memory customerName, string memory data) public {
         /** check if customer is exist or not - allow adding new customer if customer is not present*/
         require(customers[customerName].validatorBank == address(0), "Customer is already present!");
         customers[customerName].username = customerName;
@@ -93,18 +156,21 @@ contract KYC {
         customers[customerName].kycStatus = false;
         customers[customerName].upvotes = 0;
         customers[customerName].downvotes = 0;
-        return true;  
     }
 
-    /** Modify customer's data of existing customer */
-    function modifyCustomer(string memory customerName, string memory data) public returns(bool) {
+    /** Modify customer's data of existing customer
+        customerName: name of the customer whose data is need to be modified
+        data: new data of the customer
+     */
+    function modifyCustomer(string memory customerName, string memory data) public {
         /** check if customer is exist or not */
         require(customers[customerName].validatorBank != address(0), "Customer is not present in the database");
         customers[customerName].data = data;
-        return true;
     }
 
-    /** Get customer details */
+    /** Get customer details
+        customerName: name of the customer
+     */
     function getCustomer(string memory customerName) public view returns(string memory, string memory, address){
         /** check if customer is exist or not */
         require(customers[customerName].validatorBank != address(0), "Customer is not present in the database");
@@ -119,7 +185,7 @@ contract KYC {
         require(customers[customerName].validatorBank != address(0), "Customer is not present in the database");
         /** complaints reported against calling bank should be less than or equal to 1/3rd of
         *total number of banks**/
-        require(banks[msg.sender].complaintsReported <= (totalBanks/3), "Not allowed");
+        require(banks[msg.sender].complaintsReported <= (totalBanks/3), "Not allowed because of complaints");
 
         /**create a KYC request */
         requests[customerName].username = customerName;
@@ -127,21 +193,33 @@ contract KYC {
         requests[customerName].customerData = dataHash;
     }
 
-    /** Remove submitted KYC request */
+    /** Remove submitted KYC request
+        customerName: name of the customer
+     */
     function removeKycRequest(string memory customerName) public {
         /** complaints reported against calling bank should be less than or equal to 1/3rd of
         *total number of banks**/
-        require(banks[msg.sender].complaintsReported <= (totalBanks/3), "Not allowed");
+        require(banks[msg.sender].complaintsReported <= (totalBanks/3), "Not allowed because of complaints");
         /** check KYC request exist or not*/
         require(requests[customerName].bankAddress != address(0), "Couldn't find KYC request for this customer");
 
         /** Delete KYC request */
         delete requests[customerName];
+
+        /** Reset votes and KYC status */
+        customers[customerName].kycStatus = false;
+        customers[customerName].upvotes = 0;
+        customers[customerName].downvotes = 0;
     }
 
+    /** Upvote customer
+        name: name of the customer
+     */
     function upvoteCustomer(string memory name) public {
         /** customer should be added first before adding KYC request for the customer verification*/
         require(customers[name].validatorBank != address(0), "Customer is not present in the database");
+        /** kyc request should be added for voting */
+        require(requests[name].bankAddress != address(0), "KYC request not found");
         /** one bank can vote only once for any customer */
         require(votes[name][msg.sender] != 1, "You have already casted your vote");
 
@@ -156,19 +234,31 @@ contract KYC {
         this.modifyKycStatus(name);
     }
 
+    /** Downvote customer
+        name: name of the customer
+     */
     function downvoteCustomer(string memory name) public {
+         /** customer should be added first before adding KYC request for the customer verification*/
         require(customers[name].validatorBank != address(0), "Customer is not present in the database");
+        /** kyc request should be added for voting */
+        require(requests[name].bankAddress != address(0), "KYC request not found");
+        /** one bank can vote only once for any customer */
         require(votes[name][msg.sender] != 2, "You have already casted your vote");
 
+        /** decrement upvotes if calling bank had voted up previously */
         if(votes[name][msg.sender] == 1){
             customers[name].upvotes -= 1;
         }
 
+        /** Downvote */
         customers[name].downvotes += 1;
         votes[name][msg.sender] = 2;
         this.modifyKycStatus(name);
     }
 
+    /** Modify KYC status
+        name: customerName
+     */
     function modifyKycStatus(string memory name) external {
         if(customers[name].upvotes > customers[name].downvotes
          && customers[name].downvotes <= totalBanks / 3) {
@@ -178,45 +268,31 @@ contract KYC {
         }
     }
 
+    /** Get number of bank complaints against a bank
+        bankAddress: unique account address of the bank
+     */
     function getBankComplaints(address bankAddress) public view returns(uint256) {
-        require(banks[bankAddress].ethAddress == bankAddress, "Bank is not present");
+        require(banks[bankAddress].ethAddress != address(0), "Bank is not present");
         return banks[bankAddress].complaintsReported;
     }
 
+    /** Get Bank details
+        bankAddress: unique account address of the bank
+     */
     function viewBankDetails(address bankAddress) public view returns(Bank memory) {
-        require(banks[bankAddress].ethAddress == bankAddress, "Bank is not present");
+        require(banks[bankAddress].ethAddress != address(0), "Bank is not present");
         return banks[bankAddress];
     }
 
+    /** Report against a bank
+        bankAddress: unique account address of the bank
+     */
     function reportBank(address bankAddress) public {
-        require(banks[bankAddress].ethAddress == bankAddress, "Bank is not present");
+        require(banks[bankAddress].ethAddress != address(0), "Bank is not present");
         banks[bankAddress].complaintsReported += 1;
     }
 
 
-    //ADMIN INTERFACE
-
-    function addBank(string memory bankName, address bankAddress, string memory regNumber) public onlyAdmin {
-        require(banks[bankAddress].ethAddress != bankAddress, "Bank is already present");
-        banks[bankAddress].name = bankName;
-        banks[bankAddress].ethAddress = bankAddress;
-        banks[bankAddress].regNumber = regNumber;
-        banks[bankAddress].complaintsReported = 0;
-        banks[bankAddress].allowedToVote = true;
-
-        totalBanks += 1;
-    }
-
-    function removeBank(address bankAddress) public onlyAdmin {
-        require(banks[bankAddress].ethAddress == bankAddress, "Bank is not present");
-        delete banks[bankAddress];
-
-        totalBanks -= 1;
-    }
-
-    function modifyBankAccessToVote(address bankAddress, bool allowed) public onlyAdmin {
-        require(banks[bankAddress].ethAddress == bankAddress, "Bank is not present");
-        banks[bankAddress].allowedToVote = allowed;
-    }
+    
 
 }
