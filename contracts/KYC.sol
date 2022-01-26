@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >= 0.5.9;
-
+pragma solidity >=0.5.9;
+pragma experimental ABIEncoderV2;
 
 contract KYC {
 
@@ -94,7 +94,7 @@ contract KYC {
         _;
     }
 
-    constructor() {
+    constructor() public {
         adminAddress = msg.sender;
     }
 
@@ -273,7 +273,7 @@ contract KYC {
     /** Modify KYC status
         name: customerName
      */
-    function modifyKycStatus(string memory name) external {
+    function modifyKycStatus(string memory name) public {
         if(customers[name].upvotes > customers[name].downvotes
          && customers[name].downvotes <= totalBanks / 3) {
             customers[name].kycStatus = true;
